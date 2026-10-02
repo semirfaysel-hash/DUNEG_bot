@@ -1,13 +1,22 @@
 import os
-import re
+import threading
+from flask import Flask
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
+# Render Port እንዳያጣ Dummy Web Server ማዘጋጀት
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def health_check():
+    return "Bot is running live!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
+
 TOKEN = os.getenv("BOT_TOKEN")
-
-# የተጠቃሚዎችን Add ያደረጉትን ሰው ብዛት ለመያዝ
 user_add_counts = {}
-
 REQUIRED_ADD_COUNT = 30
 
 async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -15,7 +24,6 @@ async def handle_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if member.id == context.bot.id:
             continue
         
-        # አዲስ ሰው ሲገባ የሚላክ ሰላምታ እና መመሪያ
         welcome_text = (
             f"ሰላም {member.mention_html()}! 👋\n\n"
             f"እንኳን ወደ **{update.effective_chat.title}** ግሩፕ በደህና መጣህ/ሽ።\n\n"
@@ -27,7 +35,6 @@ async def check_member_permissions(update: Update, context: ContextTypes.DEFAULT
     message = update.message
     user = message.from_user
     
-    # ቦት ወይም አድሚን ከሆነ ምንም አይከለከልም
     if user.is_bot:
         return
 
@@ -35,12 +42,9 @@ async def check_member_permissions(update: Update, context: ContextTypes.DEFAULT
     if chat_member.status in ['creator', 'administrator']:
         return
 
-    # አባሉ አድ ያደረገውን ሰው ብዛት ማረጋገጥ
     added_count = user_add_counts.get(user.id, 0)
 
-    # ሰው አድ ከተደረገ ቁጥሩን መጨመር
     if message.new_chat_members:
-        # አድ የሚያደርገው ሰው
         adder_id = user.id
         added_num = len(message.new_chat_members)
         user_add_counts[adder_id] = user_add_counts.get(adder_id, 0) + added_num
@@ -58,12 +62,11 @@ async def check_member_permissions(update: Update, context: ContextTypes.DEFAULT
             )
         return
 
-    # 30 ሰው አድ ካላደረገ መልእክቱን ማጥፋት
     if added_count < REQUIRED_ADD_COUNT:
         try:
             await message.delete()
             remaining = REQUIRED_ADD_COUNT - added_count
-            warning_msg = await message.chat.send_message(
+            await message.chat.send_message(
                 f"⚠️ {user.mention_html()}፡ በግሩፑ ውስጥ መጻፍ የምትችለው/ው **{REQUIRED_ADD_COUNT} ሰዎችን Add ስታደርግ/ጊ** ብቻ ነው።\n"
                 f"እስካሁን ያደረግኸው/ሽው፦ **{added_count}** | የሚቀረህ/ሽ፦ **{remaining}**"
             )
@@ -75,12 +78,12 @@ def main():
         print("BOT_TOKEN አልተገኘም።")
         return
 
+    # Flask ዌብ ሰርቨሩን ከበስተጀርባ ማስነሳት
+    threading.Thread(target=run_flask, daemon=True).start()
+
     app = Application.builder().token(TOKEN).build()
     
-    # አዲስ አባላት ሲገቡ
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_members))
-    
-    # መልእክት ሲጻፍ አድ ማድረጋቸውን ማረጋገጥ
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, check_member_permissions))
 
     print("ቦቱ ስራ ጀምሯል...")
